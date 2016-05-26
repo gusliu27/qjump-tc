@@ -103,10 +103,11 @@ static int qfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 {
     struct qjump_fifo_priv* priv = qdisc_priv(sch);
     struct timespec ts;
-    const u64 ts_now_cycles = get_cycles();
     u64 ts_now_ns = 0;
+    u64 ts_new_cycles = 0;
     getnstimeofday(&ts);
     ts_now_ns = ts.tv_sec * 1000 * 1000 * 1000 + ts.tv_nsec;
+    const u64 ts_now_cycles = ts_now_ns;
 
     if(ts_now_cycles >= priv->next_timeout_cyles){
         priv->next_timeout_cyles = ts_now_cycles + time_quant_cyles;
@@ -127,7 +128,10 @@ static int qfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch)
                               );
         ret = qdisc_enqueue_tail(skb, sch);
         priv->bytes_left -= qdisc_pkt_len(skb);
-        priv->cycles_consumed[priv->index]= get_cycles() - ts_now_cycles;
+        //priv->cycles_consumed[priv->index]= get_cycles() - ts_now_cycles;
+        getnstimeofday(&ts);
+        ts_new_cycles = ts.tv_sec * 1000 * 1000 * 1000 + ts.tv_nsec;
+        priv->cycles_consumed[priv->index] = ts_new_cycles - ts_now_cycles;
         priv->index = (priv->index + 1) % (CYCLE_STATS_LEN);
         return ret;
     }
@@ -142,7 +146,10 @@ static int qfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch)
     }
 
     sch->qstats.drops++;
-    priv->cycles_consumed[priv->index]= get_cycles() - ts_now_cycles;
+
+    getnstimeofday(&ts);
+    ts_new_cycles = ts.tv_sec * 1000 * 1000 * 1000 + ts.tv_nsec;
+    priv->cycles_consumed[priv->index]= ts_new_cycles - ts_now_cycles;
     priv->index = (priv->index + 1) % (CYCLE_STATS_LEN);
     return NET_XMIT_DROP;
 
@@ -173,7 +180,7 @@ struct Qdisc *qjump_fifo_create_dflt(struct netdev_queue *dev_queue, struct Qdis
 {
     struct Qdisc *q;
     int err = -ENOMEM;
-    //struct timespec ts; //Allow QJump to be run directly from getnstimeofday()
+    struct timespec ts; //Allow QJump to be run directly from getnstimeofday()
 
 
     if(verbose >= 1) printk("qjump[%lu]: Init fifo limit=%u\n", verbose, limit);
@@ -189,7 +196,8 @@ struct Qdisc *qjump_fifo_create_dflt(struct netdev_queue *dev_queue, struct Qdis
         //ts_now_cycles = get_cycles();
         //getnstimeofday(&ts);
         //ts_now_cycles = ts.tv_sec * 1000 * 1000 * 1000 + ts.tv_nsec;  //get_cycles();
-        ts_now_cycles = get_cycles();
+        getnstimeofday(&ts);
+        ts_now_cycles = ts.tv_sec * 1000 * 1000 * 1000 + ts.tv_nsec;;
 
         priv->next_timeout_cyles = ts_now_cycles + time_quant_cyles;
 
@@ -406,7 +414,7 @@ static int qjump_init(struct Qdisc *sch, struct nlattr *opt)
     prates_map[6] = p6rate;
     prates_map[7] = p7rate;
 
-    time_quant_cyles = timeq * frequency / SEC2US;
+    time_quant_cyles = timeq * 1000;
     if(verbose >=0 ) printk("QJump[%lu]: Delaying %llu cycles per network tick (%lluus)\n", verbose, time_quant_cyles, (time_quant_cyles * 1000 * 1000) / frequency );
 
     q->queues = kcalloc(q->max_bands, sizeof(struct Qdisc *), GFP_KERNEL);
@@ -449,12 +457,15 @@ static int __init qjump_module_init(void)
     u64 ts_end_ns = 0;
     u64 start_cycles = 0;
     u64 end_cycles = 0;
+    /*
     int has_invariant_tsc = 0;
     unsigned int eax, ebx, ecx, edx;
+    */
     int i = 0;
 
     if(verbose >= 1) printk("QJump[%lu]: Init module\n", verbose);
-
+    // Allow qjump without invariant TSC for VMs
+    /*
     asm("cpuid" : "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx) : "a" (0x80000007));
     has_invariant_tsc = edx & (1 << 8);
 
@@ -462,7 +473,7 @@ static int __init qjump_module_init(void)
         printk("QJump[%lu]: Cannot run qjump on machines without an invaraint TSC. Terminating\n", verbose);
         return -1;
     }
-
+    */
     for(i = 0; i <3; i++){
         getnstimeofday(&ts);
         ts_start_ns = (ts.tv_nsec + ts.tv_sec * SEC2NS );
