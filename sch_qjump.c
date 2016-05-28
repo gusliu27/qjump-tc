@@ -105,9 +105,10 @@ static int qfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch)
     struct timespec ts;
     u64 ts_now_ns = 0;
     u64 ts_new_cycles = 0;
+    u64 ts_now_cycles = 0;
     getnstimeofday(&ts);
     ts_now_ns = ts.tv_sec * 1000 * 1000 * 1000 + ts.tv_nsec;
-    const u64 ts_now_cycles = ts_now_ns;
+    ts_now_cycles = ts_now_ns;
 
     if(ts_now_cycles >= priv->next_timeout_cyles){
         priv->next_timeout_cyles = ts_now_cycles + time_quant_cyles;
